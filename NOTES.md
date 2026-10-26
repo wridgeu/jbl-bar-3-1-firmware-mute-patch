@@ -22,10 +22,10 @@ Two conventions used throughout:
 - [The mute after a signal change](#the-mute-after-a-signal-change)
 - [How long a tick is](#how-long-a-tick-is)
 - [The patch (fix A)](#the-patch-fix-a)
-- [Verification](#verification)
 - [Part 2: the DSP flash image](#part-2-the-dsp-flash-image)
 - [Fix B: the DSP silence threshold](#fix-b-the-dsp-silence-threshold)
 - [Fix C: ignore the silence report](#fix-c-ignore-the-silence-report)
+- [Verification](#verification)
 - [The updater](#the-updater)
 - [Hardware](#hardware)
 - [The source side](#the-source-side)
@@ -203,40 +203,6 @@ change), and 8 bytes of the file change. With 60 ticks, the output is identical 
 > [!WARNING]
 > Only flash a `.HUI` whose SHA-256 matches [SHA256SUMS](SHA256SUMS), or one you built yourself with `tools/patch.py`.
 
-## Verification
-
-For fixes A and C, on the files in this repository:
-
-**Files:**
-
-- The ZIP is byte-identical to JBL's download (SHA-256 `a0b98984…3e96dd`). Its `.HUI` is identical to
-  `firmware/original/JBLBAR3_1.HUI`.
-- Changed bytes: part 0's table checksum, the three immediates and the log text, and for `fix-A+C` also the branch at
-  `0x880275a4`. Nothing else changed: not the header, not
-  the DEFLATE modules (so their CRC32s still match), not parts 1 to 5. The file checksum at 0x14 stays the same because
-  the part checksum absorbs the change.
-- `tools/selftest.py` rebuilds the five builds listed in the README's [Choosing the fixes](README.md#choosing-the-fixes)
-  and the stock build against known hashes, and checks that bad input is refused. Each check was shown to fail when the
-  code it covers is deliberately broken (23 such changes, all caught).
-
-**Safety of the code change:**
-
-- **Delay slots:** two of the patched instructions (`0x8802b67c`, `0x8802ba38`) sit in branch delay slots, so they also
-  run when the branch is taken. On those taken paths `a0` is not used: the next callees (`0x8802b4c4`, `0x88023b18`)
-  ignore it. The third (`0x8802b90c`) is on the straight path that goes on to call `mute()`.
-- **The rewritten log text** has one reference: it is loaded at `0x8802b694` and passed as the printf format at
-  `0x8802b698`. No `lui`/`addiu` pair in part 0's code points into it, and the new text contains no `%`.
-- **No side effects on other mutes:** `mute()` only extends the counter for source 8, so the shorter value cannot cut short
-  a longer mute from another source.
-
-**On the device** (one unit, Chromecast through the TV over HDMI ARC):
-
-- The update was accepted and the soundbar works.
-- Pause/resume still clicks. The stock firmware clicks too, only later and less noticeably.
-- Fix A + C (10 and 20 ticks): sound is back at once after a pause and the display no longer shows "PCM"; the
-  20-tick build pops much less. Details and what is still unchecked: README,
-  [Experience so far](README.md#experience-so-far).
-
 ## Part 2: the DSP flash image
 
 Part 2 is a byte-for-byte image of the DSP's own SPI flash: flash address = offset in part 2. Words are big-endian. The
@@ -392,6 +358,40 @@ starts a set-up.
 are kept as for fix A, for both changes together in one pass. With 60 ticks the text becomes `ea}sc:unlock,mute on`
 (9 bytes of the file change); with 10 ticks, `}ode}:un}o}k~mute on` (11 bytes); with 20 ticks (the prebuilt
 `fix-A+C`), `so}e{:unlock~mute on` (10 bytes).
+
+## Verification
+
+For fixes A and C, on the files in this repository:
+
+**Files:**
+
+- The ZIP is byte-identical to JBL's download (SHA-256 `a0b98984…3e96dd`). Its `.HUI` is identical to
+  `firmware/original/JBLBAR3_1.HUI`.
+- Changed bytes: part 0's table checksum, the three immediates and the log text, and for `fix-A+C` also the branch at
+  `0x880275a4`. Nothing else changed: not the header, not
+  the DEFLATE modules (so their CRC32s still match), not parts 1 to 5. The file checksum at 0x14 stays the same because
+  the part checksum absorbs the change.
+- `tools/selftest.py` rebuilds the five builds listed in the README's [Choosing the fixes](README.md#choosing-the-fixes)
+  and the stock build against known hashes, and checks that bad input is refused. Each check was shown to fail when the
+  code it covers is deliberately broken (23 such changes, all caught).
+
+**Safety of the code change:**
+
+- **Delay slots:** two of the patched instructions (`0x8802b67c`, `0x8802ba38`) sit in branch delay slots, so they also
+  run when the branch is taken. On those taken paths `a0` is not used: the next callees (`0x8802b4c4`, `0x88023b18`)
+  ignore it. The third (`0x8802b90c`) is on the straight path that goes on to call `mute()`.
+- **The rewritten log text** has one reference: it is loaded at `0x8802b694` and passed as the printf format at
+  `0x8802b698`. No `lui`/`addiu` pair in part 0's code points into it, and the new text contains no `%`.
+- **No side effects on other mutes:** `mute()` only extends the counter for source 8, so the shorter value cannot cut short
+  a longer mute from another source.
+
+**On the device** (one unit, Chromecast through the TV over HDMI ARC):
+
+- The update was accepted and the soundbar works.
+- Pause/resume still clicks. The stock firmware clicks too, only later and less noticeably.
+- Fix A + C (10 and 20 ticks): sound is back at once after a pause and the display no longer shows "PCM"; the
+  20-tick build pops much less. Details and what is still unchecked: README,
+  [Experience so far](README.md#experience-so-far).
 
 ## The updater
 

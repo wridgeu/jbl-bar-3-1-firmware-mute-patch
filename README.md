@@ -96,11 +96,10 @@ Read the warnings above first.
 The 20-tick mute is what worked best on the test unit, not a rule: to try other values, see
 [Choosing the mute length](#choosing-the-mute-length).
 
-To build the files yourself instead, see [Building it yourself](#building-it-yourself).
-
 **Where to go next:** [Experience so far](#experience-so-far) for the test results,
-[The three fixes](#the-three-fixes) for what each fix changes, [Choosing the fixes](#choosing-the-fixes) for other
-combinations (including fix B), and [NOTES.md](NOTES.md) for the research.
+[The three fixes](#the-three-fixes) for what each fix changes, [Building it yourself](#building-it-yourself) and
+[Choosing the fixes](#choosing-the-fixes) for your own builds (including fix B), and [NOTES.md](NOTES.md) for the
+research.
 
 ## Experience so far
 
@@ -109,14 +108,14 @@ One unit, Chromecast through the TV over HDMI ARC. No guarantee that yours behav
 **Fix A (10 ticks):**
 
 - **Nothing broke.** The update was accepted, and the soundbar has worked normally since.
-- **The difference is noticeable, but small.** Sound comes back a little faster after a pause. It is far from perfect, and
-  for everyday use the gain is close to negligible.
+- **The difference is noticeable, but small.** Sound comes back a little faster after a pause; for everyday use the gain
+  is close to negligible.
 - **Clicks on pause/resume remain.** The stock firmware clicks too, only later.
 
 **Fix B with threshold 0** (the value Cirrus' guide recommends): the bar showed "PCM" but played **no audio at all**.
 Flashing fix A again brought the sound back. 0 is therefore refused by `patch.py`; large thresholds are untested.
 
-**Fix A + C**, first tests:
+**Fix A + C:**
 
 - **10 ticks** (`10 --ignore-silence`): **sound is back immediately after a pause**, and the display no longer shows
   "PCM" when it returns. A clear improvement over fix A alone. Slight pops remain; they come from fix A's shorter codec
@@ -212,8 +211,8 @@ declares silence while playing PCM. What is known:
 
 **Fix C** changes one branch in the DSP message handler of the main program. In the stock firmware, the "silent input"
 report (code `0x20`) has no case of its own and ends up at `NO DATA IN` (the firmware's "no data" routine, named after
-its debug message): mute, and forget the stream type. Fix C sends
-it to the handler's return instead, so the report is ignored. What is known:
+its debug message): mute, and forget the stream type. Fix C sends it to the handler's return instead, so the report is
+ignored. What is known:
 
 - ✅ Exactly one instruction changes (`0x880275a4`). As for fix A, the debug text changes to keep the image checksums,
   and part 0's container checksum is recomputed.
@@ -248,7 +247,7 @@ it to the handler's return instead, so the report is ignored. What is known:
 | `fix-A` keeps both checksums of the main program image | ✅ |
 | The same two checks for `fix-A+C`, whose only further changes are the fix C branch and a different debug text | ✅ |
 | The checksum and header rules also hold for a second official firmware (Bar 2.1 V48) | ✅ |
-| Only the 3 timeouts, the debug text and part 0's checksum in the container table differ; the compressed modules, the other parts and the part 0 header are byte-identical | ✅ |
+| `fix-A`: only the 3 timeouts, the debug text and part 0's checksum in the container table differ; the compressed modules, the other parts and the part 0 header are byte-identical | ✅ |
 | Fix A: the changed instructions are safe on every code path | ✅ disassembly |
 | One tick is 10 ms (2 ms timer interrupt, countdown on every 5th) | ✅ traced in the code ([NOTES](NOTES.md#how-long-a-tick-is)), not measured |
 | The soundbar accepts both patched files and works | ✅ 1 unit, Chromecast through the TV over HDMI ARC |
@@ -285,16 +284,16 @@ tools/
   mips.py                     research helpers: find strings, disassemble, list modules
 NOTES.md                      research notes with addresses, evidence and sources
 SHA256SUMS                    hashes of all firmware files
-pyproject.toml, uv.lock       Python project for uv (only dependency: capstone, for mips.py)
+pyproject.toml, uv.lock       Python project for uv (dev only: capstone for mips.py, ruff for linting)
 ```
 
 | File | SHA-256 |
 |---|---|
 | `firmware/original/JBL_BAR_3_1_USB_V49.zip` | `a0b9898421ecdb408af6f5eaf1ff663c32edd45fa6f99d09603626583f3e96dd` |
 | `firmware/original/JBLBAR3_1.HUI` | `d5d014f18cfb17a4e4f65179cd14d024c7462f7a7c6fd78f65aaf704287bcaa6` |
+| `firmware/original/JBL Bar 3.1 Upgrade instructions ENGLISH V49.pdf` | `23e887b609af4cb7f3b23c8b0aa565ad5e2d0bd5b267ccc0ac436feab19ab5c8` |
 | `firmware/patched/fix-A/JBLBAR3_1.HUI` | `9238994226eb5a4d9bdd22d066f8ea17885997f3700eefd0899ac661ca06f395` |
 | `firmware/patched/fix-A+C/JBLBAR3_1.HUI` | `b1cd6ca6b6b5e45038644bd93e9dc391db372340941f3ac0bdcc3a8799ffc808` |
-| `firmware/original/JBL Bar 3.1 Upgrade instructions ENGLISH V49.pdf` | `23e887b609af4cb7f3b23c8b0aa565ad5e2d0bd5b267ccc0ac436feab19ab5c8` |
 
 Check them with `sha256sum -c SHA256SUMS` or, in PowerShell, `Get-FileHash <file>`. **Do not flash a file whose hash does
 not match.**
