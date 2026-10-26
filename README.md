@@ -342,9 +342,19 @@ cd jbl-bar-3-1-firmware-mute-patch
 uv run tools/patch.py firmware/original/JBLBAR3_1.HUI build/fix-A+C/JBLBAR3_1.HUI 20 --ignore-silence  # = fix-A+C
 uv run tools/patch.py firmware/original/JBLBAR3_1.HUI build/fix-A/JBLBAR3_1.HUI                        # = fix-A
 uv run tools/hui.py check build/fix-A+C/JBLBAR3_1.HUI                                                  # must print OK
+uv run tools/hui.py check build/fix-A/JBLBAR3_1.HUI                                                    # must print OK
+sha256sum build/fix-*/JBLBAR3_1.HUI                                                                    # = SHA256SUMS
 uv run tools/selftest.py                                                                               # all builds
 uv run ruff check                                                                                      # lint
 ```
+
+How to check a file before you flash it:
+
+- **`hui.py check`** verifies the container checksums, the same ones the soundbar's updater checks before it writes
+  anything. It prints `OK`, or the name of each part whose checksum is wrong. `patch.py` already runs this check before
+  it writes its output; run it again on the copy on your USB stick to catch a bad copy.
+- **SHA-256:** a build with the arguments of a published file must have the same hash as that file in
+  [SHA256SUMS](SHA256SUMS). For any other value only `hui.py check` applies.
 
 Builds go to `build/`, which git ignores; lint settings are in `pyproject.toml`. With Python 3.11 or newer, the same
 works with `python` instead of `uv run`: `patch.py`, `hui.py` and `selftest.py` need only the standard library.
