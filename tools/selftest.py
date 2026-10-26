@@ -14,11 +14,13 @@ import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 ORIGINAL = ROOT / "firmware/original/JBLBAR3_1.HUI"
-PATCHED = ROOT / "firmware/patched/JBLBAR3_1.HUI"
+PATCHED = ROOT / "firmware/patched/fix-A/JBLBAR3_1.HUI"
 BUILDS = {  # patch.py arguments -> SHA-256 of the output
     (): "9238994226eb5a4d9bdd22d066f8ea17885997f3700eefd0899ac661ca06f395",  # fix A, the published file
     ("60", "--silence", "0x7fffffff"): "ee2d0f239269d1a8bd841b385f04a1d5dcf7bd3e690892753da42a95e7613f89",  # fix B
     ("10", "--silence", "0x7fffffff"): "865ad5fd285bce903bd586e5cd73700f5d6fb4176799a143c96e814aca1e78b1",  # A + B
+    ("60", "--ignore-silence"): "317f6e101ea4c17978b90ad0ba7fb7e38d01c35d924b5a6df2e1c2e5af0d17a9",  # fix C
+    ("10", "--ignore-silence"): "f45419b710bb3adacbcd6dbde9c0e8f078c98ac16dff8cc56f17ff85cd483525",  # A + C
     ("60",): patch.V49_SHA256,  # stock: identical to the original
     ("60", "--silence", "0xbb80"): patch.V49_SHA256,
 }
@@ -78,10 +80,11 @@ bad[0x14:0x18] = b"\0" * 4  # recompute the file checksum, so only part 1's chec
 bad[0x14:0x18] = hui.neg_sum32(bytes(bad)).to_bytes(4, "little")
 check(hui.check(bytes(bad)) == ["part 1: checksum"], "hui.check finds a wrong part checksum alone")
 
-site = patch.SITES[1] - patch.BASE
-part0 = bytearray(body[0])
-part0[site] ^= 1
-check(f"{patch.SITES[1]:#x}" in refusal(patch.set_ticks, bytes(part0), 10), "set_ticks refuses a changed patch site")
+for site in (patch.SITES[1], patch.IGNORE_SITE):
+    part0 = bytearray(body[0])
+    part0[site - patch.BASE] ^= 1
+    msg = refusal(patch.patch_part0, bytes(part0), 10, True)
+    check(f"{site:#x}" in msg, f"patch_part0 refuses a change at {site:#x}")
 for o in (patch.SILENCE_SITES[0], patch.SILENCE_SITES[-1] - 4):  # a changed value, a missing command
     part2 = bytearray(body[2])
     part2[o + 3] ^= 1

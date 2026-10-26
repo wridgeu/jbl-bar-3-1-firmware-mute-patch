@@ -16,6 +16,7 @@ Offsets are into part 0 unless stated otherwise. "Function `X`" means the functi
 - [Verification](#verification)
 - [Part 2: the DSP flash image](#part-2-the-dsp-flash-image)
 - [Fix B: the DSP silence threshold](#fix-b-the-dsp-silence-threshold)
+- [Fix C: ignore the silence report](#fix-c-ignore-the-silence-report)
 - [The updater](#the-updater)
 - [Hardware](#hardware)
 - [The source side](#the-source-side)
@@ -100,7 +101,7 @@ The codec monitor (function `0x8802b5a0`) calls `mute(60, source 8)` in three pl
 | Instruction | When |
 |---|---|
 | `0x8802b67c` | codec loses lock: log `codec:unlock,mute on` |
-| `0x8802b90c` | after `codec:lock`, if flag gp+0x328 is set |
+| `0x8802b90c` | codec reports digital silence: function `0x8802b344` logs `No Digital Signal Input` and clears gp+0x349, then this site runs if flag gp+0x328 is set |
 | `0x8802ba38` | log `Codec detect signal is diffierent` (sic) |
 
 Each is `addiu a0, zero, 0x3c`. The same function also calls `mute(0, source 8)` at `0x8802b94c` and `0x8802b978`.
@@ -117,11 +118,12 @@ Stock timeouts at the `mute()` call sites:
 
 - 0 (until explicit unmute)
 - 1 (source 13, `0x880290c0` and `0x8802910c`)
-- 20 (source 13, on the same lock path)
+- 20 (source 13, `0x8802b8cc`: when the signal returns after digital silence, while the first mute is still running)
 - 35 to 100 (source 4)
 - 50, 250, 300, 1000
 
-The DSP's silence report starts a second, longer chain; see [Fix B](#fix-b-the-dsp-silence-threshold).
+The DSP's silence report starts a second, longer chain; see [Fix B](#fix-b-the-dsp-silence-threshold) and
+[Fix C](#fix-c-ignore-the-silence-report).
 
 ## How long a tick is
 
@@ -180,8 +182,8 @@ or `\`:
 1. First it tries 2 letters at even and 2 at odd offsets (meet in the middle). This finds the 10-tick solution.
 2. Otherwise it tracks every reachable pair of sum changes over all 20 characters, with the fewest rewrites per pair.
 
-Every value from 1 to 63 builds. Above 63 there is no solution: the needed sum changes cannot be reached with printable
-characters, so `patch.py` refuses those values.
+Every value from 1 to 63 builds, with and without fix C. Above 63 there is no solution: the needed sum changes cannot
+be reached with printable characters, so `patch.py` refuses those values.
 
 - **Outer sum:** unchanged, so the part 0 header stays byte-identical.
 - **Inner sum:** unchanged, so both stored copies stay correct.
@@ -203,8 +205,9 @@ For fix A, on the files in this repository:
 - Changed bytes: part 0's table checksum, the three immediates and the log text. Nothing else changed: not the header, not
   the DEFLATE modules (so their CRC32s still match), not parts 1 to 5. The file checksum at 0x14 stays the same because
   the part checksum absorbs the change.
-- `tools/selftest.py` rebuilds every variant against known hashes and checks that bad input is refused. Each check was
-  shown to fail when the code it covers is deliberately broken (17 such changes, all caught).
+- `tools/selftest.py` rebuilds the five builds listed in the README's [Choosing the fixes](README.md#choosing-the-fixes)
+  and the stock build against known hashes, and checks that bad input is refused. Each check was shown to fail when the
+  code it covers is deliberately broken (23 such changes, all caught).
 
 **Safety of the code change:**
 
@@ -220,6 +223,8 @@ For fix A, on the files in this repository:
 
 - The update was accepted and the soundbar works.
 - Pause/resume still clicks. The stock firmware clicks too, only later and less noticeably.
+- Fix A + C (`10 --ignore-silence`), first test: sound is back at once after a pause and the display no longer shows
+  "PCM". Slight pops remain (fix A's shorter mute). Side effects (volume/EQ, format switches, standby) not checked yet.
 
 ## Part 2: the DSP flash image
 
@@ -255,12 +260,14 @@ DSP boots from that flash by itself; the main program never sends it code.
    The UM6 guide counts left + right samples (its default 0x17700 = 96,000 "allows for 1sec" at 48 kHz), which makes
    48,000 half a second; the older AN123 calls 48,000 "1 Second at 48 KHz". So it is 0.5 or 1 s.
 2. The autodetect handler (function `0x88027410`) sends code `0x00` to `NO DATA IN` at `0x8802749c` on purpose
-   (`beqz` at `0x8802748c`), and `0x20` and `0x40` end up there because no case matches (`bne` at `0x880275a4`).
+   (`beqz` at `0x8802748c`); codes without a case of their own end up there too: `0x20` through the `bne` at
+   `0x880275a4` (fix C), `0x40` through the one at `0x88027578`.
    `NO DATA IN` clears the stream type (`0x88029cec(0)`) and calls `mute(0, source 9)`. On HDMI inputs that is a hard
    mute; on the others the volume ramps to 0. `mute(0, 9)` is also called at `0x880231dc` and `0x88027c58`.
 3. The stream-change handler (function `0x88027ab4`) then clears its stream cache. When sound returns, the DSP is set up
-   again from state 4: state 7 waits 30 ticks (`0x88029ab4`), and the stream-done mute is lip-sync/10 + 5 ticks
-   (`0x880297e8`), or lip-sync/10 + 50 ticks on HDMI inputs (`0x88029824`). The display shows "PCM" again.
+   again: the set-up first mutes for 55 ticks (`0x88029a10`, source 4), state 7 waits 30 ticks (`0x88029ab4`), and the
+   stream-done mute is lip-sync/10 + 5 ticks (`0x880297e8`), or lip-sync/10 + 50 ticks on HDMI inputs (`0x88029824`).
+   The display shows "PCM" again.
 
 **The change:** the value after each `81000008` command (DSP OS module, index 8: write command `0x8100HHHH 0xhhhhhhhh`,
 guide §7.6.2) is rewritten. There are exactly 8, all in configuration blocks:
@@ -314,6 +321,65 @@ So no shipped product shows that a large value works. Untested on hardware.
 the unlock and mutes for the fix A time); whether a PCM → Dolby/DTS switch without a pause is still detected with a large
 threshold (the bar resets the DSP on format changes reported by the codec, so it probably is); whether there is audible
 hiss during long silences on HDMI inputs.
+
+## Fix C: ignore the silence report
+
+Fix C leaves the DSP alone and changes what the main program does with code `0x20` (step 2 of the chain above).
+
+**The dispatch.** The autodetect handler (function `0x88027410`) reads the code into `s0` and narrows it down with
+`slti` comparisons. Codes `0x0e` to `0x20` reach `0x88027564`, where `0x15` has its own case. `0x16` to `0x20` then
+branch to `0x880275a4` (`beqz` at `0x8802756c`), with `v0 = 0x16` set in its delay slot (`0x88027570`):
+
+| Address | Stock | Fix C |
+|---|---|---|
+| `0x880275a4` | `bne s0, v0, 0x8802749c` (`0x1602ffbd`): anything but `0x16` → `NO DATA IN` | `bne s0, v0, 0x88027430` (`0x1602ffa2`): anything but `0x16` → return |
+
+- `0x16` (Dolby TrueHD in Table 7-1 of the Cirrus guide) still falls through to its case at `0x880275ac`.
+- `0x17` to `0x20` now return without doing anything. Of these, Table 7-1 documents only `0x1c` (AAC, which the bar has
+  no decoder for) and `0x20` (Silent Input Data).
+- `0x88027430` is the handler's own epilogue (`lw ra`, `lw s0`, `jr ra`, `addiu sp, sp, 0x18`), where the other
+  cases end too (for example `j 0x88027430` at `0x88027524`). The stack frame is the same at both places: `sp` changes
+  only at `0x88027410` and `0x8802743c`.
+- Code `0x00` still goes to `NO DATA IN` (`beqz` at `0x8802748c`), and so does every code that reaches it through
+  another branch (for example `0x88027578`, `0x8802768c`, `0x880277a8`) or falls through from `0x88027494` (codes 2 to
+  `0x0a`).
+
+**What it gains.** On `0x20`, the bar no longer calls `0x88029cec(0)` and `mute(0, source 9)`, so the stream type
+(`0x80017fa0`) keeps its value and flag `0x80017f98` is not set. The DSP still detects the silence and sends the report
+(the threshold is unchanged); it picks up the input again by itself when sound returns. When it reports the stream
+again, the stream-change handler compares the new type with its cache (`0x88027b9c`, `beq` at `0x88027bac` to
+`0x88027e84`), finds it unchanged and skips the set-up of step 3 (0.55 s or more). That path was not traced to its end
+in the code, but the first test on one unit (fix A + C, Chromecast) matches it: sound is back at once after a pause,
+and the display no longer shows "PCM".
+
+**What still sets the DSP up again.** The full set-up is DSP state 1 (`HH:AUDIO_FRAME_CHG_PREPROCESS`, `0x880299b0`:
+the 55-tick mute, then state 2). State 2 (`0x88029488`, jump table at `0x88051334`) boots the DSP for the S/PDIF or
+HDMI input (`0x88026b78`, `0x88026bac`) and resets both the stream type (`0x88029f98`) and the cache (`0x88026e6c`) to
+`0xff`, so the next report is always treated as new. State 1 is set through `0x88029434(2, 1)` from:
+
+| Caller | When |
+|---|---|
+| `0x8802378c`, `0x88023998` | source switch: functions `0x880236b0` and `0x880238a4` write the new source to `0x80017e10`; the first is called from the key handler (`0x88022e2c`, `sorce switch in`) |
+| `0x88027e4c` | stream-change handler: a stream type that differs from the cache (PCM ↔ Dolby/DTS) |
+| `0x8802b958` | codec monitor: if the DSP state machine is idle (state 0, read by `0x8802830c`) and the current source is not source 1, it calls `mute(0, 8)` and starts a set-up; the trigger was not traced further |
+| `0x880273c0` | DSP API message handler (`stream_sample_rate`, `input_sample_rate` logs), under a condition not traced |
+
+None of them goes through `0x880275a4`, so fix C leaves them as they are. Only the DSP's own silence report no longer
+starts a set-up.
+
+**Risks** (not checked yet):
+
+- The DSP itself mutes its output in the Silent Input Data state (AN123) and detects the input again. If it also reloads
+  its configuration, settings the main program sent (volume, EQ, sound mode) might be lost until the next input change.
+- If the DSP reports a pulled cable or a source that was switched off as `0x20` and the codec does not see it, the bar
+  no longer mutes for it. When the input clock stops, the codec monitor sees the unlock and mutes anyway (fix A path).
+- AAC (`0x1c`) no longer mutes. Unknown codes `0x17` to `0x1f` are ignored instead of muting.
+- Like fix A, fix C changes part 0, which holds the updater. A part 0 that does not start cannot be fixed with a USB
+  stick. The changed branch only matters when the DSP sends one of these codes.
+
+`patch.py` checks the stock word at `0x880275a4` on every build and refuses to run if it differs. The checksums
+are kept as for fix A, for both changes together in one pass. With 60 ticks the text becomes `ea}sc:unlock,mute on`
+(9 bytes of the file change); with 10 ticks (fix A + C), `}ode}:un}o}k~mute on` (11 bytes).
 
 ## The updater
 
@@ -416,6 +482,9 @@ Claims that rest on a single source or on reading the code, not on a test:
 - Which inputs auto standby watches, the hard mute on HDMI inputs, and the "DSP dead" watchdog: read from the code, not
   traced in every detail.
 - Where the debug text is printed (the printf at `0x800a69a0` was not followed).
+- Fix B with a non-zero threshold: never run on a soundbar. Fix C: one short test on one unit, together with fix A.
+- Fix C: the stream-change handler's cache path after a silence report that the bar ignored (the test matches it), and
+  whether the DSP keeps its configuration through the Silent Input Data state (not checked on the device yet).
 
 ## Checking these notes yourself
 
@@ -433,14 +502,18 @@ uv run tools/mips.py dis 0x80095198 40                        # registrations: p
 uv run tools/mips.py dis 0x800950f4 8                         # calls the mute countdown 0x88028b58
 uv run tools/mips.py dis 0x88028b40 30                        # mute counter setter and countdown
 uv run tools/mips.py dis 0x8802748c 1                         # autodetect: code 0 -> NO DATA IN
-uv run tools/mips.py dis 0x880275a4 3                         # autodetect: 0x20 falls through to NO DATA IN
+uv run tools/mips.py dis 0x88027564 4                         # autodetect: 0x16..0x20 -> 0x880275a4
+uv run tools/mips.py dis 0x880275a4 3                         # autodetect: 0x17..0x20 -> NO DATA IN (fix C changes it)
+uv run tools/mips.py dis 0x88027430 4                         # autodetect: the handler's return (fix C target)
+uv run tools/mips.py dis 0x88029488 34                        # DSP state 2: input set-up, resets stream type and cache
 uv run tools/mips.py dis 0x800a2e50 5                         # updater: erase of the DSP flash
 uv run tools/mips.py modules                                  # DEFLATE modules whose CRC32 matches
 ```
 
-To check the patched file against the original: `cmp -l firmware/original/JBLBAR3_1.HUI firmware/patched/JBLBAR3_1.HUI`
-lists the 8 changed bytes. `uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI` rebuilds the
-patched file, which must be byte-identical.
+To check a patched file against the original: `cmp -l firmware/original/JBLBAR3_1.HUI
+firmware/patched/fix-A/JBLBAR3_1.HUI` lists the 8 changed bytes (11 for `fix-A+C`).
+`uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI` rebuilds the fix A file, and the same
+with `10 --ignore-silence` the fix A + C file; each must be byte-identical.
 
 ## Sources
 

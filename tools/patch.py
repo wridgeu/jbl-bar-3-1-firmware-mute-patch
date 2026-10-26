@@ -1,21 +1,24 @@
 """Build a patched JBL Bar 3.1 V49 firmware that loses less sound after a pause or a signal change.
 
-  uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI [ticks] [--silence N]
+  uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI [ticks] [options]
 
 Fix A (default, tested on one unit): the stock firmware mutes for 60 ticks (10 ms each, so 0.6 s) at three
-places in the codec monitor. This sets all three to TICKS (or the ticks argument; 60 leaves part 0 as it is).
-Nothing else in part 0 changes, except a debug-only log text: a few of its characters are rewritten so that
-both Sunplus checksums of part 0 come out unchanged
+places in the codec monitor. This sets all three to TICKS (or the ticks argument; 60 leaves them as they are).
+
+Fix B (opt-in with --silence, experimental, part 2): sets the DSP's PCM silence threshold (stock 48000 samples)
+in the 8 configuration blocks that write it. After that many silent samples the DSP reports "silent input", and
+the bar mutes and sets the DSP up again. A large value should keep that from happening during pauses; 0 does the
+opposite (tested: no audio at all), so it is refused.
+
+Fix C (opt-in with --ignore-silence, experimental, one short test with fix A, part 0): the bar ignores the DSP's
+"silent input" report instead of muting and forgetting the stream, so it does not set the DSP up again when
+sound returns.
+
+Fixes A and C change part 0. A few characters of a debug-only log text are then rewritten so that both
+Sunplus checksums of part 0 come out unchanged
   - outer: 16-bit word sum of the scrambled part from +0x80 (stored at +0x10),
   - inner: 16-bit word sum of the unscrambled image from +0xd0 (stored at +0xa0 and +0xc0),
-which keeps part 0's header byte-identical.
-
-Fix B (opt-in with --silence, experimental): sets the DSP's PCM silence threshold (stock 48000 samples) in the
-8 configuration blocks of part 2 that write it. After that many silent samples the DSP reports "silent input",
-and the bar mutes and sets the DSP up again. A large value should keep that from happening during pauses;
-0 does the opposite (tested: no audio at all), so it is refused.
-
-hui.repack then fixes the container checksums. See NOTES.md.
+which keeps part 0's header byte-identical. hui.repack then fixes the container checksums. See NOTES.md.
 """
 
 import argparse
@@ -28,7 +31,7 @@ from typing import NoReturn
 
 import hui
 
-# Mute length in ticks after the codec loses lock, locks again, or sees a different signal. Stock: 60.
+# Mute length in ticks after the codec loses lock, reports digital silence, or sees a different signal. Stock: 60.
 # Smaller = sound returns sooner but more clicks may be audible; 0 is not allowed (it means "mute until unmuted").
 TICKS = 10
 
@@ -36,12 +39,22 @@ TICKS = 10
 # 0 is refused: on a real Bar 3.1 it made the DSP report silence at once, and no audio played.
 SILENCE = None
 
+# Fix C (experimental): True makes the bar ignore the DSP's "silent input" report. Stock: False.
+IGNORE_SILENCE = False
+
 V49_SHA256 = "d5d014f18cfb17a4e4f65179cd14d024c7462f7a7c6fd78f65aaf704287bcaa6"
 BASE = 0x88006000  # load address of part 0
-SITES = (0x8802B67C, 0x8802B90C, 0x8802BA38)  # codec unlock, after lock, signal changed
+SITES = (0x8802B67C, 0x8802B90C, 0x8802BA38)  # codec unlock, digital silence, signal changed
 OLD = 0x2404003C  # addiu a0, zero, 60: the mute() timeout argument at each site
 LOG = (0x8805186C, b"codec:unlock,mute on")  # referenced once, as a debug printf format
 PRINTABLE = [c for c in range(0x20, 0x7F) if c not in b"%\\"]  # allowed replacements: printable, no format chars
+
+# Fix C: in the DSP autodetect handler, codes 0x16..0x20 reach this branch with v0 = 0x16. Every code but 0x16
+# (TrueHD) goes to "NO DATA IN" (mute, stream type 0); retargeting it to the handler's return ignores them.
+# Of 0x17..0x20 only 0x1C (AAC, unsupported) and 0x20 ("Silent Input Data") are documented codes.
+IGNORE_SITE = 0x880275A4
+IGNORE_OLD = 0x1602FFBD  # bne s0, v0, 0x8802749c (NO DATA IN)
+IGNORE_NEW = 0x1602FFA2  # bne s0, v0, 0x88027430 (return)
 
 # Part 2 (DSP flash image, big-endian): offsets of the value word after each "81000008" (OS module index 8,
 # PCM_AUTODETECT_SILENCE_THRESHOLD). They lie in config blocks (INIT 0/2, PCM, Dolby Digital) that have no
@@ -125,18 +138,22 @@ def compensate(raw: bytearray, d_raw: int, d_plain: int) -> None:
     fail(f"no way to keep both checksums for this tick value (sum deltas {d_raw}, {d_plain}); try another")
 
 
-def set_ticks(part0: bytes, ticks: int) -> bytes:
-    """Fix A: set the three codec-monitor mute timeouts, keeping both Sunplus checksums of part 0."""
+def patch_part0(part0: bytes, ticks: int, ignore_silence: bool) -> bytes:
+    """Fix A (the three codec-monitor mute timeouts) and fix C (ignore "silent input"), keeping both Sunplus
+    checksums of part 0."""
     raw = bytearray(part0)
-    offs = [s - BASE for s in SITES]
-    for o in offs:
-        if word(raw, o) != OLD:
-            fail(f"{BASE + o:#x}: expected {OLD:#010x}, found {word(raw, o):#010x}")
+    stock = {s - BASE: OLD for s in SITES} | {IGNORE_SITE - BASE: IGNORE_OLD}
+    for o, w in stock.items():
+        if word(raw, o) != w:
+            fail(f"{BASE + o:#x}: expected {w:#010x}, found {word(raw, o):#010x}")
     before, before_p = sum16(raw[0x80:]), plain_sum(raw)
     if before != struct.unpack_from("<I", raw, 0x10)[0] or [word(raw, 0xA0), word(raw, 0xC0)] != [before_p] * 2:
         fail("part 0 checksums are not as expected")
-    for o in offs:  # the timeout is the low halfword of the instruction
-        raw[o : o + 2] = bytes(b ^ hui.key(o + k) for k, b in enumerate(struct.pack("<H", ticks)))
+    new = {s - BASE: OLD & 0xFFFF0000 | ticks for s in SITES}  # the timeout is the instruction's low halfword
+    if ignore_silence:
+        new[IGNORE_SITE - BASE] = IGNORE_NEW
+    for o, w in new.items():
+        raw[o : o + 4] = bytes(b ^ hui.key(o + k) for k, b in enumerate(struct.pack("<I", w)))
     compensate(raw, before - sum16(raw[0x80:]), before_p - plain_sum(raw))
     if sum16(raw[0x80:]) != before or plain_sum(raw) != before_p:
         fail("checksum compensation went wrong")
@@ -161,9 +178,11 @@ def main() -> None:
     ap.add_argument("src", type=Path, help="original firmware/original/JBLBAR3_1.HUI (V49)")
     ap.add_argument("dst", type=Path, help="output file; name it JBLBAR3_1.HUI on the USB stick")
     ap.add_argument("ticks", type=int, nargs="?", default=TICKS,
-                    help=f"mute length in ticks (default {TICKS}, stock 60)")
+                    help=f"fix A: codec mute in 10 ms ticks, 1..63 (default {TICKS}; 60 = stock)")
     ap.add_argument("--silence", type=lambda s: int(s, 0), default=SILENCE, metavar="N",
-                    help="fix B: DSP silence threshold in samples, e.g. 0x7fffffff (stock 48000; default: leave as is)")
+                    help="fix B (experimental): DSP silence threshold, 1..0x7fffffff samples (stock 48000)")
+    ap.add_argument("--ignore-silence", action="store_true", default=IGNORE_SILENCE,
+                    help="fix C (experimental, briefly tested with A): ignore the DSP's 'silent input' report")
     a = ap.parse_args()
     if not 0 < a.ticks < 64:  # above 63 the log text cannot balance the checksums
         fail("ticks must be 1..63 (0 means mute until something unmutes)")
@@ -178,7 +197,7 @@ def main() -> None:
     if hashlib.sha256(d).hexdigest() != V49_SHA256:
         fail(f"{a.src} is not the original V49 JBLBAR3_1.HUI")
     body = {i: d[off : off + sz] for i, _, off, sz, _, _ in hui.parts(d)}
-    bodies = {0: set_ticks(body[0], a.ticks)}
+    bodies = {0: patch_part0(body[0], a.ticks, a.ignore_silence)}
     if a.silence is not None:
         bodies[2] = set_silence(body[2], a.silence)
     new = hui.repack(d, bodies)
@@ -190,7 +209,9 @@ def main() -> None:
     log = bytes(bodies[0][o + i] ^ hui.key(o + i) for i in range(len(LOG[1])))
     changed = sum(x != y for x, y in zip(d, new, strict=True))
     silence = "stock" if a.silence is None else f"{a.silence:#x}"
-    print(f"{a.dst}: mute {a.ticks} ticks, log text {log!r}; DSP silence threshold {silence}; {changed} bytes changed")
+    ignore = "ignored" if a.ignore_silence else "stock"
+    print(f"{a.dst}: mute {a.ticks} ticks; DSP silence threshold {silence}; silence report {ignore}; "
+          f"log text {log!r}; {changed} bytes changed")
 
 
 if __name__ == "__main__":

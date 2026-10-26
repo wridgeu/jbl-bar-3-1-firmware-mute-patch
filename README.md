@@ -10,22 +10,25 @@ firmware **V49**, the newest version on JBL's download page. The years in the ti
 support page ("Hergestellt von 2018 bis 2020"). They pin down the model: this is for that soundbar only, the one with
 the wireless subwoofer, and for no other JBL bar with a similar name.
 
-When the audio signal drops out, locks again or changes format, the soundbar mutes for **0.6 s** before playing sound
-again. The patch (fix A) shortens that to **0.1 s**. After digital silence, the DSP adds a longer re-detection of its own;
-an **experimental** second fix (fix B) goes after that. See [The two fixes](#the-two-fixes).
+When the audio signal drops out, goes digitally silent or changes format, the soundbar mutes for **0.6 s** before
+playing sound again. The patch (fix A) shortens that to **0.1 s**. After digital silence, the DSP and the bar add a
+longer re-detection of their own; two **experimental** fixes go after that: fix B in the DSP, fix C in the main
+program. See [The three fixes](#the-three-fixes).
 
 This repository contains:
 
 - the official firmware, unmodified and with hashes;
-- the patched firmware (fix A);
-- the scripts that build and check it, including fix B, and a self-test;
+- the patched firmware: fix A, and fix A + C;
+- the scripts that build and check it, and a self-test; they can also build other variants, including the
+  experimental fix B, which is not prebuilt;
 - the research behind it, with instructions for checking every claim yourself ([NOTES.md](NOTES.md)).
 
 > [!CAUTION]
 > **Flashing modified firmware can make your soundbar permanently unusable ("bricked").**
-> This modification is unofficial and unsupported. Fix A has been tested on **one** unit; fix B in its current form on
-> **none**. JBL no longer supports the Bar 3.1, and the only known recovery methods for a soundbar that no longer starts
-> require opening the case. **If you cannot afford to lose the soundbar, do not flash this.**
+> This modification is unofficial and unsupported. Fix A has been tested on **one** unit, fix C (together with A) only
+> briefly on the same unit, and fix B in its current form on **none**. JBL no longer supports the Bar 3.1, and the only
+> known recovery methods for a soundbar that no longer starts require opening the case. **If you cannot afford to lose
+> the soundbar, do not flash this.**
 
 > [!WARNING]
 > **Disclaimer: use entirely at your own risk.**
@@ -51,7 +54,7 @@ This repository contains:
 - [Quick start](#quick-start)
 - [Experience so far](#experience-so-far)
 - [Why this exists](#why-this-exists)
-- [The two fixes](#the-two-fixes)
+- [The three fixes](#the-three-fixes)
 - [What is verified](#what-is-verified)
 - [Repository layout](#repository-layout)
 - [Installing](#installing)
@@ -70,20 +73,30 @@ This repository contains:
 
 Read the warnings above first.
 
-1. Download `firmware/patched/JBLBAR3_1.HUI` (fix A, the tested build) and check its SHA-256 against
-   [SHA256SUMS](SHA256SUMS).
-2. Flash it as in [Installing](#installing).
+1. Pick a build. Both are named `JBLBAR3_1.HUI`, as the soundbar expects, so each sits in its own folder:
 
-To rebuild it yourself instead, with [uv](https://docs.astral.sh/uv/):
+   | Build | File | Status |
+   |---|---|---|
+   | **Fix A** | `firmware/patched/fix-A/JBLBAR3_1.HUI` | tested on one unit: sound back a little sooner after a pause |
+   | **Fix A + C** | `firmware/patched/fix-A+C/JBLBAR3_1.HUI` | one short test on the same unit: sound back at once, no "PCM" on the display; side effects not checked yet |
+
+   If in doubt, start with fix A. Fix A + C is experimental, but it fixed the pause gap where fix A alone barely did
+   (see [Experience so far](#experience-so-far)).
+2. Check its SHA-256 against [SHA256SUMS](SHA256SUMS).
+3. Flash it as in [Installing](#installing).
+
+To rebuild them yourself instead, with [uv](https://docs.astral.sh/uv/):
 
 ```sh
 git clone https://github.com/wridgeu/jbl-bar-3-1-firmware-mute-patch
 cd jbl-bar-3-1-firmware-mute-patch
-uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI   # identical to the prebuilt file
-uv run tools/hui.py check my_build/JBLBAR3_1.HUI                              # must print OK
+uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI                      # = fix-A
+uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build_c/JBLBAR3_1.HUI 10 --ignore-silence  # = fix-A+C
+uv run tools/hui.py check my_build/JBLBAR3_1.HUI                                                 # must print OK
 ```
 
-Fix B is experimental and not part of the quick start; see [Choosing the fixes](#choosing-the-fixes).
+Fix B is experimental and not part of the quick start. For other mute lengths (fewer pops with fix C) and the other
+combinations, see [Choosing the fixes](#choosing-the-fixes) and [Choosing the mute length](#choosing-the-mute-length).
 
 ## Experience so far
 
@@ -98,6 +111,14 @@ One unit, Chromecast source. No guarantee that yours behaves the same.
 
 **Fix B with threshold 0** (the value Cirrus' guide recommends): the bar showed "PCM" but played **no audio at all**.
 Flashing fix A again brought the sound back. 0 is therefore refused by `patch.py`; large thresholds are untested.
+
+**Fix A + C** (`10 --ignore-silence`), first test:
+
+- **Sound is back immediately after a pause**, and the display no longer shows "PCM" when it returns. A clear
+  improvement over fix A alone.
+- **Slight pops remain.** They come from fix A's shorter codec mute, not from fix C.
+- Not checked yet: volume/EQ after many pauses, PCM ↔ Dolby/DTS switches, standby, other inputs (see the checklist in
+  [Choosing the fixes](#choosing-the-fixes)).
 
 ## Why this exists
 
@@ -119,30 +140,40 @@ Chromecast, which behaves the same way. JBL support's answer:
 V49's codec mute of 60 ticks of 10 ms (0.6 s) is consistent with that promise, although V49's release notes do not
 mention it, and no older Bar 3.1 firmware was available to compare.
 
-## The two fixes
+## The three fixes
 
 Sound is lost after a pause in two ways:
 
-1. **DSP silence detection.** After 48,000 samples of digital silence (about 0.5 to 1 s at 48 kHz), the DSP reports "silent
-   input". The bar then mutes and forgets the stream. When sound returns, it sets the DSP up again from scratch, with a
-   0.3 s wait and a further mute of at least 50 ms (at least 0.5 s on HDMI inputs). That is when the display shows "PCM".
-2. **Codec mute.** Whenever the audio codec loses lock, locks again or sees a different format, the bar mutes for 60 ticks
-   (0.6 s). This is what happens when the source stops sending altogether.
+1. **DSP silence detection.** After 48,000 samples of digital silence (about 0.5 to 1 s at 48 kHz), the DSP reports
+   "silent input". The bar then mutes and forgets the stream. When sound returns, it sets the DSP up again from scratch:
+   a 0.55 s mute (which covers a 0.3 s wait), then a further mute of at least 50 ms (at least 0.5 s on HDMI inputs).
+   That is when the display shows "PCM".
+2. **Codec mute.** Whenever the audio codec loses lock, reports digital silence or sees a different format, the bar
+   mutes for 60 ticks (0.6 s).
 
-| | Fix A: codec mute | Fix B: DSP silence threshold |
-|---|---|---|
-| Changes | 3 instructions in the main program: mute 60 → 10 ticks | 8 values in the DSP configuration: 48,000 → `0x7fffffff` |
-| Effect | the codec mute lasts 0.1 s instead of 0.6 s | the DSP should practically never report silence during PCM playback, so step 1 should not happen |
-| Status | ✅ tested on one unit | ❌ 0 tested: no audio · ⚠️ large values **untested** |
-| Prebuilt file | `firmware/patched/JBLBAR3_1.HUI` | none; build it yourself |
-| Default in `patch.py` | on | off (`--silence` turns it on) |
+Fix A shortens step 2. Fixes B and C both go after step 1, at different ends: B keeps the DSP from sending the report,
+C makes the bar ignore it.
+
+| | Fix A: codec mute | Fix B: DSP silence threshold | Fix C: ignore the silence report |
+|---|---|---|---|
+| Changes | 3 instructions in the main program: mute 60 → 10 ticks | 8 values in the DSP configuration: 48,000 → `0x7fffffff` | 1 branch in the main program |
+| Effect | the codec mute lasts 0.1 s instead of 0.6 s | the DSP should practically never report silence during PCM playback | the bar neither mutes nor forgets the stream on the report, so the set-up in step 1 is skipped |
+| Status | ✅ tested on one unit | ❌ 0 tested: no audio · ⚠️ large values **untested** | ⚠️ first test on one unit (with A): sound back at once |
+| Part changed | part 0 (main program) | part 2 (DSP flash) | part 0 (main program) |
+| Prebuilt file | `firmware/patched/fix-A/JBLBAR3_1.HUI` | none; build it yourself | together with A: `firmware/patched/fix-A+C/JBLBAR3_1.HUI` |
+| Default in `patch.py` | on | off (`--silence` turns it on) | off (`--ignore-silence` turns it on) |
+
+The three are independent: each can be built alone or with the others (see [Choosing the fixes](#choosing-the-fixes)).
+If the source stops sending altogether (a Chromecast does after 3 s of silence, see
+[Other things to try](#other-things-to-try)), the codec loses lock, which fix A shortens. B and C are aimed at pauses in
+which the source keeps sending digital silence; whether they also help when it stops is not known.
 
 **Fix A** sets the three timeouts in the codec monitor:
 
 | Instruction | When |
 |---|---|
 | `0x8802b67c` | codec loses lock |
-| `0x8802b90c` | codec locks again |
+| `0x8802b90c` | codec reports digital silence (`No Digital Signal Input`) |
 | `0x8802ba38` | codec reports a different signal format |
 
 To keep the checksums valid, a debug log message changes from `codec:unlock,mute on` to `-ode/:uolock,mute on`. Other
@@ -165,6 +196,30 @@ declares silence while playing PCM. What is known:
 - ⚠️ Possible side effects: faint hiss during long silences on HDMI inputs, where the bar used to mute the amplifier; a
   switch from PCM to Dolby/DTS without a pause might not be detected.
 
+**Fix C** changes one branch in the DSP message handler of the main program. In the stock firmware, the "silent input"
+report (code `0x20`) has no case of its own and ends up at `NO DATA IN`: mute, and forget the stream type. Fix C sends
+it to the handler's return instead, so the report is ignored. What is known:
+
+- ✅ Exactly one instruction changes (`0x880275a4`). As for fix A, the debug text changes to keep the image checksums,
+  and part 0's container checksum is recomputed.
+- ✅ Only codes `0x17` to `0x20` are affected. Besides `0x20`, the only documented one is `0x1c` (AAC, which the bar
+  does not decode); it is now ignored too, instead of muting. Code `0x00` ("no data") and every other code behave as
+  before.
+- ✅ Auto standby and the codec mute (fix A) do not depend on the report: they use the codec and the inputs, not the DSP.
+- ⚠️ What happens during a pause (partly traced in the code; the first test on one unit matches):
+  1. The DSP still detects silence at the stock threshold and still sends the report. Detection is neither off nor
+     delayed.
+  2. The bar ignores the report: no mute, and it keeps the stream type ("PCM").
+  3. The DSP picks up the input again by itself when sound returns. The bar sees the same stream type as before, so
+     it skips the set-up: no 0.55 s mute and no "PCM" on the display.
+- ✅ The full set-up still runs when something really changes, for example a source switch or a new stream type
+  (PCM ↔ Dolby/DTS). None of the paths that start it goes through the changed branch.
+- ⚠️ Possible side effect: if the DSP loads its configuration again on its own, volume or EQ settings might be lost
+  until the next input change.
+- ⚠️ Fix C changes part 0, like fix A: if it went wrong badly enough to stop the bar from starting, the updater would be
+  gone with it. Fix A shows that a part 0 change that keeps its checksums is accepted and boots. The changed branch only
+  matters when the DSP sends one of those codes.
+
 > [!NOTE]
 > **Clicks.** The codec mute hides clicks while the audio chain re-syncs, so a shorter mute makes them easier to hear.
 > To mute longer, build another value (see [Choosing the mute length](#choosing-the-mute-length)).
@@ -176,9 +231,10 @@ declares silence while playing PCM. What is known:
 | The ZIP in `firmware/original/` is byte-identical to JBL's download | ✅ SHA-256 |
 | The patched file passes all container checksums | ✅ |
 | The patched file keeps both checksums of the main program image | ✅ |
+| The same two checks for `fix-A+C`, whose only further changes are the fix C branch and a different debug text | ✅ |
 | The checksum and header rules also hold for a second official firmware (Bar 2.1 V48) | ✅ |
 | Only the 3 timeouts, the debug text and part 0's checksum in the container table differ; the compressed modules, the other parts and the part 0 header are byte-identical | ✅ |
-| The changed instructions are safe on every code path | ✅ disassembly |
+| Fix A: the changed instructions are safe on every code path | ✅ disassembly |
 | One tick is 10 ms (2 ms timer interrupt, countdown on every 5th) | ✅ traced in the code ([NOTES](NOTES.md#how-long-a-tick-is)), not measured |
 | The soundbar accepts the patched file and works | ✅ 1 unit, Chromecast source |
 | The updater checks the model ("3.1") and the part checksums, and writes every part | ✅ disassembly ([NOTES](NOTES.md#the-updater)), not fully traced |
@@ -186,6 +242,9 @@ declares silence while playing PCM. What is known:
 | Fix B: no checksum covers the changed values, and nothing else in the main program depends on them | ✅ analysis ([NOTES](NOTES.md#fix-b-the-dsp-silence-threshold)) |
 | Fix B with threshold 0 | ❌ no audio |
 | Fix B with a large threshold | ⚠️ not tested |
+| Fix C: the changed branch is taken only by codes `0x17` to `0x20`, and its new target is the handler's normal return, with the same stack frame | ✅ disassembly ([NOTES](NOTES.md#fix-c-ignore-the-silence-report)) |
+| Fix C: a real change (source switch, new stream type) still starts the full DSP set-up | ✅ disassembly ([NOTES](NOTES.md#fix-c-ignore-the-silence-report)) |
+| Fix C on a soundbar | ✅ first test on one unit (with A): sound back at once, no "PCM" · ⚠️ side effects not checked yet |
 | Dolby, DTS, other sample rates, optical, Bluetooth | ⚠️ not systematically tested |
 | Subwoofer link, long-term use | ⚠️ not tested |
 | Flashing the official file again restores stock firmware | ⚠️ likely (same updater path as above), not tested |
@@ -206,11 +265,12 @@ firmware/
     JBL_BAR_3_1_USB_V49.zip     as downloaded from JBL
     JBLBAR3_1.HUI               extracted from the ZIP
     JBL Bar 3.1 Upgrade instructions ENGLISH V49.pdf
-  patched/
-    JBLBAR3_1.HUI               fix A (10 ticks), named the way the soundbar expects
+  patched/                    named JBLBAR3_1.HUI, the way the soundbar expects, one folder per build
+    fix-A/JBLBAR3_1.HUI         fix A (10 ticks)
+    fix-A+C/JBLBAR3_1.HUI       fix A (10 ticks) + fix C
 tools/
   hui.py                      check / unpack / repack the .HUI container
-  patch.py                    builds the patched firmware from the original (fix A, optionally fix B)
+  patch.py                    builds the patched firmware from the original (fix A, optionally fixes B and C)
   selftest.py                 checks patch.py and hui.py against known outputs and bad input
   mips.py                     research helpers: find strings, disassemble, list modules
 NOTES.md                      research notes with addresses, evidence and sources
@@ -222,7 +282,8 @@ pyproject.toml, uv.lock       Python project for uv (only dependency: capstone, 
 |---|---|
 | `firmware/original/JBL_BAR_3_1_USB_V49.zip` | `a0b9898421ecdb408af6f5eaf1ff663c32edd45fa6f99d09603626583f3e96dd` |
 | `firmware/original/JBLBAR3_1.HUI` | `d5d014f18cfb17a4e4f65179cd14d024c7462f7a7c6fd78f65aaf704287bcaa6` |
-| `firmware/patched/JBLBAR3_1.HUI` | `9238994226eb5a4d9bdd22d066f8ea17885997f3700eefd0899ac661ca06f395` |
+| `firmware/patched/fix-A/JBLBAR3_1.HUI` | `9238994226eb5a4d9bdd22d066f8ea17885997f3700eefd0899ac661ca06f395` |
+| `firmware/patched/fix-A+C/JBLBAR3_1.HUI` | `f45419b710bb3adacbcd6dbde9c0e8f078c98ac16dff8cc56f17ff85cd483525` |
 
 Check them with `sha256sum -c SHA256SUMS` or, in PowerShell, `Get-FileHash <file>`. **Do not flash a file whose hash does
 not match.**
@@ -232,8 +293,9 @@ not match.**
 These are JBL's steps from the [V49 instructions](firmware/original/JBL%20Bar%203.1%20Upgrade%20instructions%20ENGLISH%20V49.pdf),
 with the patched file:
 
-1. Copy **only** `firmware/patched/JBLBAR3_1.HUI` (or your own build) into the root folder of a USB stick (FAT32 is the
-   safe choice). The name must be exactly `JBLBAR3_1.HUI`: the updater looks for nothing else.
+1. Copy **only** `firmware/patched/fix-A/JBLBAR3_1.HUI` (or `fix-A+C/JBLBAR3_1.HUI`, or your own build) into the root
+   folder of a USB stick (FAT32 is the safe choice). The name must be exactly `JBLBAR3_1.HUI`: the updater looks for
+   nothing else.
 2. Turn the soundbar **off**.
 3. Connect an AUX cable from the bar's **AUX** port to the subwoofer's **SW Upgrade** port. The subwoofer is updated over
    it; this patch leaves its firmware unchanged.
@@ -274,37 +336,48 @@ With Python 3.11 or newer, the same works with `python` instead of `uv run`. `pa
 only the standard library.
 
 - **Reproducible:** the build gives the same bytes every time. With the defaults (fix A, 10 ticks), the result is
-  identical to `firmware/patched/JBLBAR3_1.HUI`, so you can check the published file without trusting it.
-- **Self-check:** with 60 ticks (with or without `--silence 0xbb80`), the result is identical to the original.
+  identical to `firmware/patched/fix-A/JBLBAR3_1.HUI`; with `10 --ignore-silence`, to
+  `firmware/patched/fix-A+C/JBLBAR3_1.HUI`. So you can check the published files without trusting them.
+- **Stock build:** with 60 ticks and no other option (or `--silence 0xbb80`, the stock value), the result is
+  identical to the original.
 - **Refusals:** `patch.py` runs only on the original V49 file (it checks the SHA-256), so not on an already patched
-  file. It refuses `--silence 0`, stops if a checksum does not come out right, and warns if the output is not named
-  `JBLBAR3_1.HUI`.
-- **Self-test:** `selftest.py` builds all variants against known hashes and feeds the tools bad input. It takes a few
-  seconds.
+  file. It refuses tick values outside 1 to 63 and `--silence 0`, stops if a checksum does not come out right, and warns
+  if the output is not named `JBLBAR3_1.HUI`.
+- **Self-test:** `selftest.py` rebuilds the five builds in [Choosing the fixes](#choosing-the-fixes) and the stock
+  build against known hashes, and feeds the tools bad input. It takes a few seconds.
 
 ### Choosing the fixes
 
 > [!WARNING]
-> **Fix B is experimental.** Its first and only hardware test, with threshold 0, ended with no audio until fix A was
-> flashed again. Large thresholds have never run on a soundbar. Only try it if you are ready to re-flash.
+> **Fixes B and C are experimental.** Fix B's first and only hardware test, with threshold 0, ended with no audio until
+> fix A was flashed again; large thresholds have never run on a soundbar. Fix C has had one short test on one unit.
+> Only try them if you are ready to re-flash.
 
-Pick by how much risk you accept. The arguments go after the output file:
+Pick by how much risk you accept. The arguments go after the output file. The tick value controls fix A (60 is stock, so
+it turns fix A off), `--silence` fix B, and `--ignore-silence` fix C:
 
 | Build | Arguments | Risk |
 |---|---|---|
-| Fix A only | none | tested on one unit; same as the prebuilt file |
+| Fix A only | none | tested on one unit; same as `firmware/patched/fix-A/` |
 | Fix B only | `60 --silence 0x7fffffff` | **untested**; touches only the DSP configuration |
+| Fix C only | `60 --ignore-silence` | **untested** alone; touches the main program |
 | Fix A + B | `10 --silence 0x7fffffff` | **untested** |
+| Fix A + C | `10 --ignore-silence` | first test on one unit: sound back at once; side effects not checked yet; same as `firmware/patched/fix-A+C/` |
 
-Instead, you can set `TICKS` and `SILENCE` at the top of [`tools/patch.py`](tools/patch.py). `--silence` takes 1 to
-`0x7fffffff`; 0 is refused. A smaller step than the maximum, such as `--silence 480000` (5 to 10 s of silence), is a
-more cautious first test.
+B and C go after the same report, so start with one of them. Both can be combined
+(`10 --silence 0x7fffffff --ignore-silence`), but a test would then not tell you which one helped.
 
-If you try fix B, test it right after flashing, and keep a stick with fix A or the original file at hand:
+Instead of the arguments, you can set `TICKS`, `SILENCE` and `IGNORE_SILENCE` at the top of
+[`tools/patch.py`](tools/patch.py). `--silence` takes 1 to `0x7fffffff`; 0 is refused. A smaller value, such as
+`--silence 480000` (5 to 10 s of silence), is a more cautious first test.
+
+If you try fix B or C, test it right after flashing, and keep a stick with fix A or the original file at hand:
 
 - pause/resume, shortly and for longer than 3 s;
+- after a pause: are volume, EQ and sound mode still as before?
 - switching between PCM and Dolby/DTS (apps, trailers);
 - each input you use: HDMI, ARC, optical, Bluetooth;
+- pull the cable or turn the source off while playing: the bar should go quiet, not hum or hiss;
 - leave the source off: the bar should still go to standby after about 10 minutes;
 - listen for hiss during long silences.
 
@@ -319,21 +392,26 @@ keep the checksums.
 |---|---|---|
 | 60 | 0.6 s | stock (output identical to the original file) |
 | 30 | 0.3 s | |
-| 20 | 0.2 s | the other mute on the codec lock path |
-| **10** | **0.1 s** | **the prebuilt file**, tested on one unit |
+| 20 | 0.2 s | the stock mute when the signal returns after digital silence |
+| **10** | **0.1 s** | **the prebuilt files**, tested on one unit |
 | 5 | 0.05 s | about 1.5 Dolby frames (32 ms each): expect more clicks on format changes |
 | 1 | up to 0.01 s | minimum (see below for 0) |
 
 Shorter means sound returns sooner, with more audible clicks, especially when switching between PCM, Dolby and DTS.
 Longer means fewer clicks, but more of each sound's start is cut off.
 
+**With fix C, try a longer mute.** Fix C takes care of the pause itself, so fix A's mute then matters mainly for the
+clicks. With A + C at 10 ticks, sound comes back at once but slight pops remain. A longer mute such as
+`20 --ignore-silence` or `30 --ignore-silence` may remove them at little cost. There is no single best value: pick the
+balance of speed and clicks you prefer, and expect to try more than one.
+
 > [!NOTE]
 > **Why not 0?** In the firmware, a mute of 0 ticks means "stay muted until something explicitly unmutes", so the bar
 > would most likely go silent after the first dropout. `patch.py` refuses it.
 >
 > **Why not just 1?** It builds, but it removes only this one delay. The codec still has to lock again, other mutes on the
-> same path stay (20 ticks), and after silence the DSP's own re-detection adds 0.3 s or more (see
-> [The two fixes](#the-two-fixes)). Expect little gain over 10 and more clicks.
+> same path stay (20 ticks), and after silence the DSP set-up adds 0.55 s or more (see
+> [The three fixes](#the-three-fixes)). Expect little gain over 10 and more clicks.
 
 To use another value, pass it after the output file
 (`uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI 20`); some values take a few seconds.
@@ -352,8 +430,8 @@ video, PCM ↔ Dolby/DTS switches and menu sounds. Any value other than 10 gives
 | `tools/hui.py check <file.HUI>` | verifies the container checksums |
 | `tools/hui.py unpack <file.HUI> <dir>` | writes each part to `<dir>/part<i>_type<t>.bin` |
 | `tools/hui.py repack <file.HUI> <dir> <new.HUI>` | puts edited parts back and recomputes the container checksums |
-| `tools/patch.py <original.HUI> <out.HUI> [ticks] [--silence N]` | builds the patched firmware |
-| `tools/selftest.py` | checks the two tools above |
+| `tools/patch.py <original.HUI> <out.HUI> [ticks] [--silence N] [--ignore-silence]` | builds the patched firmware |
+| `tools/selftest.py` | checks `patch.py` and `hui.py` |
 | `tools/mips.py find <text>` | finds a string in the main program and the functions that use it |
 | `tools/mips.py dis <address> [count]` | disassembles the main program or one of its two code modules |
 | `tools/mips.py modules` | lists the compressed modules whose CRC32 matches |
@@ -417,6 +495,8 @@ A summary. The addresses, evidence and the commands to check them are in [NOTES.
   recomputes the container checksums.
 - **Fix B** rewrites the value after each of the 8 `81000008` commands (DSP OS module, index 8) in part 2 and recomputes
   the container checksums.
+- **Fix C** changes the target of one `bne` in the DSP message handler from `NO DATA IN` to the handler's return, then
+  keeps the image checksums the same way as fix A and recomputes the container checksums.
 
 ## Sources
 
@@ -452,7 +532,7 @@ User reports:
 
 - **Original firmware:** the files in `firmware/original/` are © Harman International Industries and redistributed
   unmodified. They are publicly available from JBL at the URLs above.
-- **Patched firmware:** `firmware/patched/JBLBAR3_1.HUI` is a modified version of the original.
+- **Patched firmware:** the files in `firmware/patched/` are modified versions of the original.
 - **Removal:** if you are a rights holder and want a file removed, please open an issue.
 - **Authorship:** the scripts in `tools/` and the documentation are the work of this project's authors.
 - **No warranty:** THIS SOFTWARE AND FIRMWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. IN NO

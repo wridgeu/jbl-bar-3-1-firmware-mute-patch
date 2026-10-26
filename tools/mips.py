@@ -6,9 +6,9 @@ firmware/original/JBLBAR3_1.HUI, so every address in NOTES.md can be checked wit
   uv run tools/mips.py modules                        list the raw-DEFLATE modules whose CRC32 trailer matches
 
 `dis` understands three address ranges:
-  0x88006000...  part 0 itself (unscrambled), the application
+  0x88006000...  part 0 itself (unscrambled), the main program
   0x8001cc00...  DEFLATE module at part 0 offset 0xd94a7, the resident RTOS
-  0x80093000...  DEFLATE module at part 0 offset 0x1045d8, app init and periodic callbacks
+  0x80093000...  DEFLATE module at part 0 offset 0x1045d8, app start-up, periodic callbacks and the updater
 The two load addresses were found by lining up jal targets with function prologues (see NOTES.md).
 """
 
