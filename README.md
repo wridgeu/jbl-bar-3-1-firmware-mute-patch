@@ -26,10 +26,10 @@ variant, and the research behind it ([NOTES.md](NOTES.md)). How the fixes work: 
 
 > [!CAUTION]
 > **Flashing modified firmware can make your soundbar permanently unusable ("bricked").**
-> This modification is unofficial and unsupported. Fix A has been tested on **one** unit, fix A + C only briefly on the
-> same unit, and fix B in its current form on **none**. JBL no longer supports the Bar 3.1, and the only known recovery
-> methods for a soundbar that no longer starts require opening the case. **If you cannot afford to lose the soundbar, do
-> not flash this.**
+> This modification is unofficial and unsupported. Fix A and fix A + C have each been tested on **one** unit only, and
+> fix B in its current form on **none**. JBL no longer supports the Bar 3.1, and the only known recovery methods for a
+> soundbar that no longer starts require opening the case. **If you cannot afford to lose the soundbar, do not flash
+> this.**
 
 > [!WARNING]
 > **Disclaimer: use entirely at your own risk.**
@@ -81,7 +81,7 @@ Read the warnings above first.
 
    | Build | File | What to expect |
    |---|---|---|
-   | **Fix A (20 ticks) + C**, recommended | `firmware/patched/fix-A+C/JBLBAR3_1.HUI` | sound back almost at once after a pause, pops about as mild as with the stock firmware; experimental, briefly tested on one unit |
+   | **Fix A (20 ticks) + C**, recommended | `firmware/patched/fix-A+C/JBLBAR3_1.HUI` | sound back almost at once after a pause, pops about as mild as with the stock firmware; experimental, tested on one unit |
    | **Fix A** | `firmware/patched/fix-A/JBLBAR3_1.HUI` | the longest-tested build; sound back only a little sooner |
 
    To download a single file, open it on GitHub and choose **Download raw file**.
@@ -172,7 +172,7 @@ sending the "silent input" report, C makes the bar ignore it.
 |---|---|---|---|
 | Changes | 3 mute timeouts: 60 → 10 ticks (20 in A+C) | 8 DSP settings: 48,000 → `0x7fffffff` | 1 branch |
 | Effect | codec mute 0.1 s (0.2 s) instead of 0.6 s | DSP should practically never report silence | DSP re-setup skipped |
-| Status | ✅ tested, 1 unit | ❌ 0: no audio · ⚠️ others untested | ⚠️ short tests, 1 unit, with A |
+| Status | ✅ tested, 1 unit | ❌ 0: no audio · ⚠️ others untested | ⚠️ tested, 1 unit, with A |
 | Part changed | part 0 (main program) | part 2 (DSP flash) | part 0 (main program) |
 | Prebuilt file | `fix-A/`, and in `fix-A+C/` | none | in `fix-A+C/` |
 | In `patch.py` | on by default (ticks argument) | `--silence N` | `--ignore-silence` |
@@ -259,7 +259,7 @@ it to the handler's return instead, so the report is ignored. What is known:
 | Fix B with a large threshold | ⚠️ not tested |
 | Fix C: the changed branch is taken only by codes `0x17` to `0x20`, and its new target is the handler's normal return, with the same stack frame | ✅ disassembly ([NOTES](NOTES.md#fix-c-ignore-the-silence-report)) |
 | Fix C: a real change (source switch, new stream type) still starts the full DSP set-up | ✅ disassembly ([NOTES](NOTES.md#fix-c-ignore-the-silence-report)) |
-| Fix C on a soundbar | ✅ short tests on one unit, with A at 10 and 20 ticks: sound back at once or almost at once, no "PCM" · ⚠️ side effects not checked yet |
+| Fix C on a soundbar | ✅ tested on one unit, with A at 10 and 20 ticks: sound back at once or almost at once, no "PCM" · ⚠️ side effects not checked yet |
 | Dolby, DTS, other sample rates, optical, Bluetooth | ⚠️ not systematically tested |
 | Subwoofer link, long-term use | ⚠️ not tested |
 | Flashing the official file again restores stock firmware | ⚠️ likely (same updater path as above), not tested |
@@ -365,7 +365,7 @@ works with `python` instead of `uv run`: `patch.py`, `hui.py` and `selftest.py` 
 > [!WARNING]
 > **Fixes B and C are experimental, and so is the recommended A+C build.** Fix B's first and only hardware test, with
 > threshold 0, ended with no audio until fix A was flashed again; large thresholds have never run on a soundbar. Fix C
-> has had short tests on one unit, together with fix A. Only try them if you are ready to re-flash.
+> has been tested on one unit, together with fix A. Only try them if you are ready to re-flash.
 
 Pick by how much risk you accept. The arguments go after the output file. The tick value controls fix A (60 is stock, so
 it turns fix A off), `--silence` fix B, and `--ignore-silence` fix C:
@@ -376,7 +376,7 @@ it turns fix A off), `--silence` fix B, and `--ignore-silence` fix C:
 | Fix B only | `60 --silence 0x7fffffff` | **untested**; touches only the DSP configuration |
 | Fix C only | `60 --ignore-silence` | **untested** alone; touches the main program |
 | Fix A + B | `10 --silence 0x7fffffff` | **untested** |
-| Fix A + C (recommended) | `20 --ignore-silence` | short tests on one unit: sound back almost at once, mild pops; side effects not checked yet; same as `firmware/patched/fix-A+C/` |
+| Fix A + C (recommended) | `20 --ignore-silence` | tested on one unit: sound back almost at once, mild pops; side effects not checked yet; same as `firmware/patched/fix-A+C/` |
 
 B and C go after the same report, so start with one of them. Both can be combined
 (`10 --silence 0x7fffffff --ignore-silence`), but a test would then not tell you which one helped.

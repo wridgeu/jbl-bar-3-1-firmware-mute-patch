@@ -10,9 +10,10 @@ in the 8 configuration blocks that write it. After that many silent samples the 
 the bar mutes and sets the DSP up again. A large value should keep that from happening during pauses; 0 does the
 opposite (tested: no audio at all), so it is refused.
 
-Fix C (opt-in with --ignore-silence, experimental, short tests with fix A, part 0; recommended together with a
-20-tick fix A: `20 --ignore-silence` gives firmware/patched/fix-A+C): the bar ignores the DSP's "silent input"
-report instead of muting and forgetting the stream, so it does not set the DSP up again when sound returns.
+Fix C (opt-in with --ignore-silence, experimental, tested on one unit with fix A, part 0; recommended together
+with a 20-tick fix A: `20 --ignore-silence` gives firmware/patched/fix-A+C): the bar ignores the DSP's "silent
+input" report instead of muting and forgetting the stream, so it does not set the DSP up again when sound
+returns.
 
 Fixes A and C change part 0. A few characters of a debug-only log text are then rewritten so that both
 Sunplus checksums of part 0 come out unchanged
@@ -182,7 +183,7 @@ def main() -> None:
     ap.add_argument("--silence", type=lambda s: int(s, 0), default=SILENCE, metavar="N",
                     help="fix B (experimental): DSP silence threshold, 1..0x7fffffff samples (stock 48000)")
     ap.add_argument("--ignore-silence", action="store_true", default=IGNORE_SILENCE,
-                    help="fix C (experimental, briefly tested with A): ignore the DSP's 'silent input' report")
+                    help="fix C (experimental, tested on one unit with A): ignore the DSP's 'silent input' report")
     a = ap.parse_args()
     if not 0 < a.ticks < 64:  # above 63 the log text cannot balance the checksums
         fail("ticks must be 1..63 (0 means mute until something unmutes)")

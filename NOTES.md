@@ -494,8 +494,8 @@ Claims that rest on a single source or on reading the code, not on a test:
 - Which inputs auto standby watches, the hard mute on HDMI inputs, and the "DSP dead" watchdog: read from the code, not
   traced in every detail.
 - Where the debug text is printed (the printf at `0x800a69a0` was not followed).
-- Fix B with a non-zero threshold: never run on a soundbar. Fix C: short tests on one unit, together with fix A at 10
-  and 20 ticks.
+- Fix B with a non-zero threshold: never run on a soundbar. Fix C: tested on one unit, together with fix A at 10 and 20
+  ticks.
 - Fix C: the stream-change handler's cache path after a silence report that the bar ignored (the test matches it), and
   whether the DSP keeps its configuration through the Silent Input Data state (not checked on the device yet).
 
