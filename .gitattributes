@@ -1,0 +1,7 @@
+# Text files: always LF in the repository and in the working copy, on every OS
+* text=auto eol=lf
+
+# Firmware and documents: never touch line endings
+*.HUI binary
+*.zip binary
+*.pdf binary
