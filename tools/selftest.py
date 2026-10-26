@@ -20,7 +20,7 @@ BUILDS = {  # patch.py arguments -> SHA-256 of the output
     ("60", "--silence", "0x7fffffff"): "ee2d0f239269d1a8bd841b385f04a1d5dcf7bd3e690892753da42a95e7613f89",  # fix B
     ("10", "--silence", "0x7fffffff"): "865ad5fd285bce903bd586e5cd73700f5d6fb4176799a143c96e814aca1e78b1",  # A + B
     ("60", "--ignore-silence"): "317f6e101ea4c17978b90ad0ba7fb7e38d01c35d924b5a6df2e1c2e5af0d17a9",  # fix C
-    ("10", "--ignore-silence"): "f45419b710bb3adacbcd6dbde9c0e8f078c98ac16dff8cc56f17ff85cd483525",  # A + C
+    ("20", "--ignore-silence"): "b1cd6ca6b6b5e45038644bd93e9dc391db372340941f3ac0bdcc3a8799ffc808",  # A + C, published
     ("60",): patch.V49_SHA256,  # stock: identical to the original
     ("60", "--silence", "0xbb80"): patch.V49_SHA256,
 }

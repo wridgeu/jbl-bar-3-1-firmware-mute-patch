@@ -10,7 +10,7 @@ in the 8 configuration blocks that write it. After that many silent samples the 
 the bar mutes and sets the DSP up again. A large value should keep that from happening during pauses; 0 does the
 opposite (tested: no audio at all), so it is refused.
 
-Fix C (opt-in with --ignore-silence, experimental, one short test with fix A, part 0): the bar ignores the DSP's
+Fix C (opt-in with --ignore-silence, experimental, short tests with fix A, part 0): the bar ignores the DSP's
 "silent input" report instead of muting and forgetting the stream, so it does not set the DSP up again when
 sound returns.
 

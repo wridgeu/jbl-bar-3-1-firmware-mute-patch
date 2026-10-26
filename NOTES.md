@@ -223,8 +223,10 @@ For fix A, on the files in this repository:
 
 - The update was accepted and the soundbar works.
 - Pause/resume still clicks. The stock firmware clicks too, only later and less noticeably.
-- Fix A + C (`10 --ignore-silence`), first test: sound is back at once after a pause and the display no longer shows
-  "PCM". Slight pops remain (fix A's shorter mute). Side effects (volume/EQ, format switches, standby) not checked yet.
+- Fix A + C, first tests: sound is back at once after a pause and the display no longer shows "PCM". With
+  `10 --ignore-silence`, slight pops remain (fix A's shorter mute); with `20 --ignore-silence` (the prebuilt `fix-A+C`)
+  they are much milder, about as with the stock firmware. Side effects (volume/EQ, format switches, standby) not checked
+  yet.
 
 ## Part 2: the DSP flash image
 
@@ -349,7 +351,7 @@ branch to `0x880275a4` (`beqz` at `0x8802756c`), with `v0 = 0x16` set in its del
 (the threshold is unchanged); it picks up the input again by itself when sound returns. When it reports the stream
 again, the stream-change handler compares the new type with its cache (`0x88027b9c`, `beq` at `0x88027bac` to
 `0x88027e84`), finds it unchanged and skips the set-up of step 3 (0.55 s or more). That path was not traced to its end
-in the code, but the first test on one unit (fix A + C, Chromecast) matches it: sound is back at once after a pause,
+in the code, but the first tests on one unit (fix A + C, Chromecast) match it: sound is back at once after a pause,
 and the display no longer shows "PCM".
 
 **What still sets the DSP up again.** The full set-up is DSP state 1 (`HH:AUDIO_FRAME_CHG_PREPROCESS`, `0x880299b0`:
@@ -379,7 +381,8 @@ starts a set-up.
 
 `patch.py` checks the stock word at `0x880275a4` on every build and refuses to run if it differs. The checksums
 are kept as for fix A, for both changes together in one pass. With 60 ticks the text becomes `ea}sc:unlock,mute on`
-(9 bytes of the file change); with 10 ticks (fix A + C), `}ode}:un}o}k~mute on` (11 bytes).
+(9 bytes of the file change); with 10 ticks, `}ode}:un}o}k~mute on` (11 bytes); with 20 ticks (the prebuilt
+`fix-A+C`), `so}e{:unlock~mute on` (10 bytes).
 
 ## The updater
 
@@ -482,7 +485,8 @@ Claims that rest on a single source or on reading the code, not on a test:
 - Which inputs auto standby watches, the hard mute on HDMI inputs, and the "DSP dead" watchdog: read from the code, not
   traced in every detail.
 - Where the debug text is printed (the printf at `0x800a69a0` was not followed).
-- Fix B with a non-zero threshold: never run on a soundbar. Fix C: one short test on one unit, together with fix A.
+- Fix B with a non-zero threshold: never run on a soundbar. Fix C: short tests on one unit, together with fix A at 10
+  and 20 ticks.
 - Fix C: the stream-change handler's cache path after a silence report that the bar ignored (the test matches it), and
   whether the DSP keeps its configuration through the Silent Input Data state (not checked on the device yet).
 
@@ -511,9 +515,9 @@ uv run tools/mips.py modules                                  # DEFLATE modules 
 ```
 
 To check a patched file against the original: `cmp -l firmware/original/JBLBAR3_1.HUI
-firmware/patched/fix-A/JBLBAR3_1.HUI` lists the 8 changed bytes (11 for `fix-A+C`).
+firmware/patched/fix-A/JBLBAR3_1.HUI` lists the 8 changed bytes (10 for `fix-A+C`).
 `uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI` rebuilds the fix A file, and the same
-with `10 --ignore-silence` the fix A + C file; each must be byte-identical.
+with `20 --ignore-silence` the fix A + C file; each must be byte-identical.
 
 ## Sources
 
