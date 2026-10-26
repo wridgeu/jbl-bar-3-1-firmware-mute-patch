@@ -17,9 +17,9 @@ comes back almost at once. It is experimental and has been tested on one unit on
 
 - **Fix A** shortens the safety mute the bar adds whenever the incoming signal changes or stops: 0.6 s → 0.2 s in A+C
   (0.1 s in the fix-A-only build).
-- **Fix B** makes the DSP itself wait longer before it reports silence. Experimental and not prebuilt.
-- **Fix C** stops the bar from restarting its sound processor (the DSP) after every pause, which is what took the
-  longest and showed "PCM".
+- **Fix B** makes the bar's sound processor (the DSP) wait longer before it reports silence. Experimental and not
+  prebuilt.
+- **Fix C** stops the bar from restarting the DSP after every pause, which is what took the longest and showed "PCM".
 
 The repository also holds the official firmware (unmodified, with hashes), the scripts that build and check every
 variant, and the research behind it ([NOTES.md](NOTES.md)). How the fixes work: [The three fixes](#the-three-fixes).
