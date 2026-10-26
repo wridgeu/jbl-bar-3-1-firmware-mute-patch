@@ -1,6 +1,6 @@
 """Build a patched JBL Bar 3.1 V49 firmware that loses less sound after a pause or a signal change.
 
-  uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI [ticks] [options]
+  uv run tools/patch.py firmware/original/JBLBAR3_1.HUI build/fix-A/JBLBAR3_1.HUI [ticks] [options]
 
 Fix A (default, tested on one unit): the stock firmware mutes for 60 ticks (10 ms each, so 0.6 s) at three
 places in the codec monitor. This sets all three to TICKS (or the ticks argument; 60 leaves them as they are).
@@ -10,9 +10,9 @@ in the 8 configuration blocks that write it. After that many silent samples the 
 the bar mutes and sets the DSP up again. A large value should keep that from happening during pauses; 0 does the
 opposite (tested: no audio at all), so it is refused.
 
-Fix C (opt-in with --ignore-silence, experimental, short tests with fix A, part 0): the bar ignores the DSP's
-"silent input" report instead of muting and forgetting the stream, so it does not set the DSP up again when
-sound returns.
+Fix C (opt-in with --ignore-silence, experimental, short tests with fix A, part 0; recommended together with a
+20-tick fix A: `20 --ignore-silence` gives firmware/patched/fix-A+C): the bar ignores the DSP's "silent input"
+report instead of muting and forgetting the stream, so it does not set the DSP up again when sound returns.
 
 Fixes A and C change part 0. A few characters of a debug-only log text are then rewritten so that both
 Sunplus checksums of part 0 come out unchanged

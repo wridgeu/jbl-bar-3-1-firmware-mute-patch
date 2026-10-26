@@ -1,13 +1,22 @@
 [project]
 name = "jbl-bar-3-1-firmware-mute-patch"
-version = "1.0.0"
-description = "Unofficial JBL Bar 3.1 V49 firmware patch: shorter audio mute. Tools to check, build and study the .HUI firmware."
+version = "1.1.0"
+description = "Unofficial JBL Bar 3.1 V49 firmware patch for the audio cut-out after silence. Tools to check, build and study the .HUI firmware."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []  # patch.py and hui.py use only the standard library
 
 [dependency-groups]
-dev = ["capstone==5.0.9"]  # only for tools/mips.py (disassembly)
+dev = [
+    "capstone==5.0.9",  # only for tools/mips.py (disassembly)
+    "ruff==0.17.2",  # lint: uv run ruff check
+]
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]

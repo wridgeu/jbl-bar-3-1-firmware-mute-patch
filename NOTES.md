@@ -1,10 +1,19 @@
 # Research notes: JBL Bar 3.1 firmware V49
 
-The technical details behind the patch, and what the research found along the way. Start with the [README](README.md).
+The technical details behind the patch, and what the research found along the way. Start with the [README](README.md),
+and read its warnings and disclaimer before flashing anything.
 
 Every address below can be checked against the original firmware with the tools in `tools/` (see
 [Checking these notes yourself](#checking-these-notes-yourself)). Addresses are virtual addresses as the code sees them.
 Offsets are into part 0 unless stated otherwise. "Function `X`" means the function whose entry is at `X`.
+
+Two conventions used throughout:
+
+- **`mute(ticks, source)`** is the bar's mute timer (setter at `0x88028bb0`). *source* identifies the code path that asks
+  for the mute, not an audio input: for example 8 = codec monitor (fix A), 9 = `NO DATA IN`, 4 = DSP set-up.
+  Audio inputs are called "inputs" here.
+- **gp+N** is a firmware variable at offset N from the MIPS global pointer `gp`. The offsets are given as the code uses
+  them (`lbu v0, 0x328(gp)`); gp+N is a name for the variable, not an address.
 
 ## Contents
 
@@ -196,13 +205,14 @@ change), and 8 bytes of the file change. With 60 ticks, the output is identical 
 
 ## Verification
 
-For fix A, on the files in this repository:
+For fixes A and C, on the files in this repository:
 
 **Files:**
 
 - The ZIP is byte-identical to JBL's download (SHA-256 `a0b98984…3e96dd`). Its `.HUI` is identical to
   `firmware/original/JBLBAR3_1.HUI`.
-- Changed bytes: part 0's table checksum, the three immediates and the log text. Nothing else changed: not the header, not
+- Changed bytes: part 0's table checksum, the three immediates and the log text, and for `fix-A+C` also the branch at
+  `0x880275a4`. Nothing else changed: not the header, not
   the DEFLATE modules (so their CRC32s still match), not parts 1 to 5. The file checksum at 0x14 stays the same because
   the part checksum absorbs the change.
 - `tools/selftest.py` rebuilds the five builds listed in the README's [Choosing the fixes](README.md#choosing-the-fixes)
@@ -219,14 +229,13 @@ For fix A, on the files in this repository:
 - **No side effects on other mutes:** `mute()` only extends the counter for source 8, so the shorter value cannot cut short
   a longer mute from another source.
 
-**On the device** (one unit, Chromecast source):
+**On the device** (one unit, Chromecast through the TV over HDMI ARC):
 
 - The update was accepted and the soundbar works.
 - Pause/resume still clicks. The stock firmware clicks too, only later and less noticeably.
-- Fix A + C, first tests: sound is back at once after a pause and the display no longer shows "PCM". With
-  `10 --ignore-silence`, slight pops remain (fix A's shorter mute); with `20 --ignore-silence` (the prebuilt `fix-A+C`)
-  they are much milder, about as with the stock firmware. Side effects (volume/EQ, format switches, standby) not checked
-  yet.
+- Fix A + C (10 and 20 ticks): sound is back at once after a pause and the display no longer shows "PCM"; the
+  20-tick build pops much less. Details and what is still unchecked: README,
+  [Experience so far](README.md#experience-so-far).
 
 ## Part 2: the DSP flash image
 
@@ -361,9 +370,9 @@ HDMI input (`0x88026b78`, `0x88026bac`) and resets both the stream type (`0x8802
 
 | Caller | When |
 |---|---|
-| `0x8802378c`, `0x88023998` | source switch: functions `0x880236b0` and `0x880238a4` write the new source to `0x80017e10`; the first is called from the key handler (`0x88022e2c`, `sorce switch in`) |
+| `0x8802378c`, `0x88023998` | input switch: functions `0x880236b0` and `0x880238a4` write the new input to `0x80017e10`; the first is called from the key handler (`0x88022e2c`, `sorce switch in`) |
 | `0x88027e4c` | stream-change handler: a stream type that differs from the cache (PCM ↔ Dolby/DTS) |
-| `0x8802b958` | codec monitor: if the DSP state machine is idle (state 0, read by `0x8802830c`) and the current source is not source 1, it calls `mute(0, 8)` and starts a set-up; the trigger was not traced further |
+| `0x8802b958` | codec monitor: if the DSP state machine is idle (state 0, read by `0x8802830c`) and the current input (`0x80017e10`) is not input 1, it calls `mute(0, 8)` and starts a set-up; the trigger was not traced further |
 | `0x880273c0` | DSP API message handler (`stream_sample_rate`, `input_sample_rate` logs), under a condition not traced |
 
 None of them goes through `0x880275a4`, so fix C leaves them as they are. Only the DSP's own silence report no longer
@@ -516,7 +525,7 @@ uv run tools/mips.py modules                                  # DEFLATE modules 
 
 To check a patched file against the original: `cmp -l firmware/original/JBLBAR3_1.HUI
 firmware/patched/fix-A/JBLBAR3_1.HUI` lists the 8 changed bytes (10 for `fix-A+C`).
-`uv run tools/patch.py firmware/original/JBLBAR3_1.HUI my_build/JBLBAR3_1.HUI` rebuilds the fix A file, and the same
+`uv run tools/patch.py firmware/original/JBLBAR3_1.HUI build/fix-A/JBLBAR3_1.HUI` rebuilds the fix A file, and the same
 with `20 --ignore-silence` the fix A + C file; each must be byte-identical.
 
 ## Sources
